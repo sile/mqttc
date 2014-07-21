@@ -29,7 +29,7 @@ start: compile
 
 .dialyzer.plt:
 	touch .dialyzer.plt
-	dialyzer --build_plt --plt .dialyzer.plt --apps erts kernel stdlib -r deps/*/ebin
+	dialyzer --build_plt --plt .dialyzer.plt --apps erts kernel stdlib inets -r deps/*/ebin
 
 dialyze: compile .dialyzer.plt
 	dialyzer --plt .dialyzer.plt -r ebin $(DIALYZER_OPTS)
