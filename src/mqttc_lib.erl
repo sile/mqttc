@@ -12,6 +12,8 @@
 -export([disconnect/1]).
 -export([publish/2]).
 -export([pubrel/2]).
+-export([subscribe/2]).
+-export([unsubscribe/2]).
 
 %%------------------------------------------------------------------------------------------------------------------------
 %% Macros
@@ -70,3 +72,12 @@ publish(Socket, PublishMsg) ->
 pubrel(Socket, MessageId) ->
     Msg = mqttm:make_pubrel(false, MessageId),
     gen_tcp:send(Socket, mqttm:encode(Msg)).
+
+-spec subscribe(inet:socket(), mqttm:subscribe_message()) -> ok | {erorr, inet:posix()}.
+subscribe(Socket, Msg) ->
+    gen_tcp:send(Socket, mqttm:encode(Msg)).
+
+-spec unsubscribe(inet:socket(), mqttm:unsubscribe_message()) -> ok | {error, inet:posix()}.
+unsubscribe(Socket, Msg) ->
+    gen_tcp:send(Socket, mqttm:encode(Msg)).
+

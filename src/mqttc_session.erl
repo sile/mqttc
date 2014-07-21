@@ -13,6 +13,8 @@
 -export([start_link/1]).
 -export([close/1]).
 -export([publish/2]).
+-export([subscribe/2]).
+-export([unsubscribe/2]).
 
 -export_type([start_arg/0]).
 
@@ -30,7 +32,8 @@
           client_id :: mqttm:client_id(),
           controlling_process :: {pid(), reference()},
           message_id = 0 :: mqttm:message_id(),
-          buffer = <<"">> :: binary()
+          buffer = <<"">> :: binary(),
+          id_to_msg = gb_trees:empty() :: gb_trees:tree(mqttm:message_id(), {mqttm:message(), term()})
         }).
 
 -type start_arg() :: {pid(), mqttc:adddres(), inet:port_number(), mqttm:client_id(), [mqttc:connect_option()]}.
@@ -55,6 +58,14 @@ close(Pid) ->
 publish(Pid, PublishMsg) ->
     gen_server:cast(Pid, {publish, PublishMsg}).
 
+-spec subscribe(pid(), mqttm:subscribe_message()) -> {ok, [mqttm:qos_level()]} | {error, Reason::term()}.
+subscribe(Pid, Msg) ->
+    gen_server:call(Pid, {subscribe, Msg}).
+
+-spec unsubscribe(pid(), mqttm:unsubscribe_message()) -> ok.
+unsubscribe(Pid, Msg) ->
+    gen_server:cast(Pid, {unsubscribe, Msg}).
+
 %%------------------------------------------------------------------------------------------------------------------------
 %% 'gen_server' Callback Functions
 %%------------------------------------------------------------------------------------------------------------------------
@@ -76,12 +87,22 @@ init({Pid, Address, Port, ClientId, Options}) ->
     end.
 
 %% @private
+handle_call({subscribe, Msg}, From, State) ->
+    case do_subscribe(Msg, From, State) of
+        {{error, Reason}, State1} -> {stop, {error, Reason}, Reason, State1};
+        {ok, State1}              -> {noreply, State1}
+    end;
 handle_call(Request, From, State) ->
     {stop, {unknown_call, Request, From}, State}.
 
 %% @private
 handle_cast({publish, PublishMsg}, State0) ->
     case do_publish(PublishMsg, State0) of % TODO: qos > 0 の場合は終了をクライアントに通知した方がよいかもしれない
+        {{error, Reason}, State1} -> {stop, Reason, State1};
+        {ok, State1}              -> {noreply, State1}
+    end;
+handle_cast({unsubscribe, Msg}, State0) ->
+    case do_unsubscribe(Msg, State0) of
         {{error, Reason}, State1} -> {stop, Reason, State1};
         {ok, State1}              -> {noreply, State1}
     end;
@@ -130,7 +151,29 @@ do_publish(PublishMsg0, State0) ->
         end,
     Result = mqttc_lib:publish(State1#state.socket, PublishMsg1),
     {Result, State1}.
-    
+
+
+-spec do_subscribe(mqttm:subscribe_message(), term(), #state{}) -> {Result, #state{}} when
+      Result :: ok | {error, Reason::term()}.
+do_subscribe(Msg0, From, State0) ->
+    NextMessageId = (State0#state.message_id + 1) rem 16#10000,
+    Msg1 = Msg0#mqttm_subscribe{message_id = NextMessageId},
+    State1 = State0#state{
+               message_id = NextMessageId,
+               id_to_msg = gb_trees:enter(NextMessageId, {Msg1, From}, State0#state.id_to_msg)
+              },
+    Result = mqttc_lib:subscribe(State1#state.socket, Msg1),
+    {Result, State1}.
+
+-spec do_unsubscribe(mqttm:unsubscribe_message(), #state{}) -> {Result, #state{}} when
+      Result :: ok | {error, Reason::term()}.
+do_unsubscribe(Msg0, State0) ->
+    NextMessageId = (State0#state.message_id + 1) rem 16#10000,
+    Msg1 = Msg0#mqttm_unsubscribe{message_id = NextMessageId},
+    State1 = State0#state{message_id = NextMessageId},
+    Result = mqttc_lib:unsubscribe(State1#state.socket, Msg1),
+    {Result, State1}.
+
 -spec handle_recv(binary(), #state{}) -> {Result, #state{}} when
       Result :: ok | {error, Reason::term()}.
 handle_recv(Data0, State0) ->
@@ -149,6 +192,11 @@ handle_messages([M | Ms], State0) ->
 
 -spec handle_message(mqttm:message(), #state{}) -> {Result, #state{}} when
       Result :: ok | {error, Reason::term()}.
+handle_message(#mqttm_publish{topic_name = Topic, payload = Payload}, State) ->
+    %% TODO: QoSに応じたハンドリング
+    #state{controlling_process = {Pid, _}} = State,
+    _ = Pid ! {mqtt, self(), Topic, Payload},
+    {ok, State};
 handle_message(#mqttm_puback{}, State0) ->
     %% TODO: ID確認
     {ok, State0};
@@ -157,6 +205,16 @@ handle_message(#mqttm_pubrec{message_id = MessageId}, State0) ->
     {mqttc_lib:pubrel(State0#state.socket, MessageId), State0};
 handle_message(#mqttm_pubcomp{}, State0) ->
     %% TODO: ID確認
+    {ok, State0};
+handle_message(#mqttm_suback{message_id = Id, payload = QosList}, State0) ->
+    case gb_trees:lookup(Id, State0#state.id_to_msg) of
+        none               -> {{error, {unexpected_suback_message_id, Id}}, State0};
+        {value, {_, From}} ->
+            _ = gen_server:reply(From, {ok, QosList}),
+            State1 = State0#state{id_to_msg = gb_trees:delete(Id, State0#state.id_to_msg)},
+            {ok, State1}
+    end;
+handle_message(#mqttm_unsuback{}, State0) ->
     {ok, State0};
 handle_message(Message, State) ->
     {{error, {unexpected_mqtt_message, Message}}, State}.

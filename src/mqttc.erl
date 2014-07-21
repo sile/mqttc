@@ -57,13 +57,16 @@ publish(Connection, TopicName, Payload, QosLevel, RetainFlag) ->
         end,
     mqttc_session:publish(Connection, PublishMsg).
 
-%%-spec subscribe(connection(), [{mqttm:topic_name(), mqttm:qos_level()}]) -> {ok, [mqttm:qos_level()]} | {error, Reason::term()}.
+-spec subscribe(connection(), [{mqttm:topic_name(), mqttm:qos_level()}]) -> {ok, [mqttm:qos_level()]} | {error, Reason::term()}.
 subscribe(Connection, TopicList) ->
-    error(not_implemented, [Connection, TopicList]).
+    Msg = mqttm:make_subscribe(false, 0, TopicList),
+    mqttc_session:subscribe(Connection, Msg).
 
-%%-spec unsubscribe(connection(), [mqttm:topic_name()]) -> ok | {error, Reason::term()}.
+-spec unsubscribe(connection(), [mqttm:topic_name()]) -> ok | {error, Reason::term()}.
 unsubscribe(Connection, TopicList) ->
-    error(not_implemented, [Connection, TopicList]).
+    %% TODO: 既に受信している分をフラッシュする?
+    Msg = mqttm:make_unsubscribe(false, 0, TopicList),
+    mqttc_session:unsubscribe(Connection, Msg).
 
 setopts(_, _) ->
     error(not_implemented).
