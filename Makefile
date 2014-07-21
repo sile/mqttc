@@ -25,7 +25,7 @@ edoc:
 	@./rebar doc skip_deps=true
 
 start: compile
-	@erl -pz ebin deps/*/ebin -eval 'erlang:display({start_app, $(APP), application:ensure_all_started($(APP))}).'
+	@erl -pz ebin deps/*/ebin -eval 'erlang:display({start_app, $(APP), application:ensure_all_started($(APP))}), $(APP):module_info().'
 
 .dialyzer.plt:
 	touch .dialyzer.plt
