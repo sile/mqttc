@@ -9,7 +9,9 @@
 %%------------------------------------------------------------------------------------------------------------------------
 %% Exported API
 %%------------------------------------------------------------------------------------------------------------------------
--export([start_link/0, start_child/1]).
+-export([start_link/0]).
+-export([start_child/1]).
+-export([which_children/0]).
 
 %%------------------------------------------------------------------------------------------------------------------------
 %% 'application' Callback API
@@ -28,6 +30,10 @@ start_link() ->
 -spec start_child(mqttc_session:start_arg()) -> {ok, pid()} | {error, Reason::term()}.
 start_child(Arg) ->
     supervisor:start_child(?MODULE, [Arg]).
+
+-spec which_children() -> [pid()].
+which_children() ->
+    [Pid || {_, Pid, _, _} <- supervisor:which_children(?MODULE)].
 
 %%------------------------------------------------------------------------------------------------------------------------
 %% 'application' Callback Functions
