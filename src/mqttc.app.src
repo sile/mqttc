@@ -1,0 +1,14 @@
+%% vim: set ft=erlang : -*- erlang -*- 
+{application, mqttc,
+ [
+   {description, "An Erlang MQTT Client"},
+  {vsn, git},
+  {registered, [mqttc_sup]},
+  {applications, [
+                  kernel,
+                  stdlib,
+                  mqttm
+                 ]},
+  {mod, { mqttc_app, []}},
+  {env, []}
+ ]}.
