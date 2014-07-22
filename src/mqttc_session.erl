@@ -14,6 +14,7 @@
 -export([get_status/1]).
 -export([get_client_id/1]).
 -export([connect/5]).
+-export([disconnect/2]).
 
 -export_type([start_arg/0]).
 
@@ -22,6 +23,7 @@
 %%------------------------------------------------------------------------------------------------------------------------
 -export([init/1, handle_event/3, handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
 -export([disconnected/2, disconnected/3, connecting/2, connecting/3, connected/2, connected/3]).
+%% TODO: disconnectメッセージの送信がブロックした場合などに備えたdisconnectingステートは必要かもしれない
 
 %%------------------------------------------------------------------------------------------------------------------------
 %% Records & Types
@@ -84,6 +86,11 @@ get_client_id(Session) ->
 connect(Session, Address, Port, Options, Timeout) ->
     gen_fsm:sync_send_event(Session, {mqtt_request, connect, {Address, Port, Options}}, Timeout).
 
+-spec disconnect(mqttc:session(), timeout()) -> ok | {error, Reason} when
+      Reason :: mqttc:tcp_error_reason() | mqttc:mqtt_error_reason().
+disconnect(Session, Timeout) ->
+    gen_fsm:sync_send_event(Session, {mqtt_request, disconnect, undefined}, Timeout).
+    
 %%------------------------------------------------------------------------------------------------------------------------
 %% 'gen_fsm' Callback Functions
 %%------------------------------------------------------------------------------------------------------------------------
@@ -125,6 +132,9 @@ connected(Event, State) ->
     handle_event_default(Event, connected, State).
 
 %% @private
+connected({mqtt_request, disconnect, _}, _From, State0) ->
+    State1 = do_disconnect(State0),
+    {reply, ok, disconnected, State1};
 connected(Event, From, State) ->
     handle_sync_event_default(Event, From, connected, State).
 
@@ -171,7 +181,8 @@ handle_info(Info, StateName, State) ->
 %% terminate(Reason, connected, {Common, Specific}) ->
 %%     ok = gen_tcp:close(Specific#connected_state.socket),
 %%     terminate(Reason, disconnected, {Common, #disconnected_state{}});
-terminate(_Reason, _StateName, _State) ->
+terminate(_Reason, _StateName, State0) ->
+    _State1 = do_disconnect(State0),
     ok.
 
 %% @private
@@ -216,24 +227,14 @@ start_connecting({Address, Port, Options}, Caller, {Common, #disconnected_state{
           },
     {Common, Specific}.
 
-%% -spec do_disconnect(state()) -> state().
-%% do_disconnect(State = {_, #disconnected_state{}}) -> State;
-%% do_disconnect({Common, Specific}) ->
-%%     Socket =
-%%         case Specific of
-%%             #connecting_state{} ->
-%%                 Specific#connecting_state.socket;
-%%             #connected_state{} ->
-%%                 gen_tcp:send(
-%%                 Specific#connected_state.socket
-%%         end,
-%%     ok = gen_tcp:close(Socket),
-%%     ok = flush_tcp_data(Socket),
-%%     {Common#common_state{recv_data = <<>>}, #disconnected_state{}}.
-
-%% -spec flush_tcp_data(inet:socket()) -> ok.
-%% flush_tcp_data(Socket) ->
-%%     receive
-%%         {tcp, Socket, _} -> flush_tcp_data(Socket)
-%%     after 0 -> ok
-%%     end.
+-spec do_disconnect(state()) -> state().
+do_disconnect(State = {_, #disconnected_state{}}) -> State;
+do_disconnect({Common, Specific})                 ->
+    _ = case Specific of
+            #connecting_state{connection_pid = Pid, connection_monitor = Monitor, caller = Caller} ->
+                gen_fsm:reply(Caller, {error, {mqtt_error, connect, cancelled}}); % XXX: error reason
+            #connected_state{connection_pid = Pid, connection_monitor = Monitor} -> ok
+        end,
+    ok = mqttc_connection:stop(Pid),
+    _ = demonitor(Monitor, [flush]),
+    {Common, #disconnected_state{}}.

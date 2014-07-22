@@ -12,11 +12,11 @@
 -export([get_session_status/1]).
 -export([get_client_id/1]).
 -export([connect/4, connect/5]).
+-export([disconnect/1, disconnect/2]).
 
 %% -export([publish/5]).
 %% -export([subscribe/2]).
 %% -export([unsubscribe/2]).
-%% -export([close/1]).
 %% -export([setopts/2, getopts/2]).
 %% -export([controlling_process/2]).
 %% -export([which_connections/0]).
@@ -109,11 +109,16 @@ connect(Session, Address, Port, Options) ->
 connect(Session, Address, Port, Options, Timeout) ->
     mqttc_session:connect(Session, Address, Port, Options, Timeout).
 
-%% -spec close(connection()) -> ok.
-%% close(Connection) when is_pid(Connection) ->
-%%     mqttc_session:close(Connection);
-%% close(Connection) ->
-%%     error(badarg, [Connection]).
+%% @equiv disconnect(Session, 5000)
+-spec disconnect(session()) -> ok | {error, Reason} when
+      Reason :: tcp_error_reason() | mqtt_error_reason().
+disconnect(Session) ->
+    disconnect(Session, 5000).
+
+-spec disconnect(session(), timeout()) -> ok | {error, Reason} when
+      Reason :: tcp_error_reason() | mqtt_error_reason().
+disconnect(Session, Timeout) ->
+    mqttc_session:disconnect(Session, Timeout).
 
 %% %% TODO: queueが空になったことを通知してもらう仕組みをつける({active, N}に近い形で設定可能とする)
 %% -spec publish(connection(), mqttm:topic_name(), binary(), mqttm:qos_level(), boolean()) -> ok.

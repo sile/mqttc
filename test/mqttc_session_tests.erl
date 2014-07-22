@@ -126,6 +126,38 @@ connect_test_() ->
      {"basic connect",
       fun () ->
               {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
-              ?assertEqual(ok, mqttc_session:connect(Pid, <<"localhost">>, 1883, [], 500))
+              ?assertEqual(ok, mqttc_session:connect(Pid, <<"localhost">>, 1883, [], 500)),
+              ?assertEqual(connected, mqttc_session:get_status(Pid))
+      end}
+    ].
+
+disconnect_test_() ->
+    [
+     {"invoke disconnect request to non connected session",
+      fun () ->
+              {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
+              ?assertEqual(disconnected, mqttc_session:get_status(Pid)),
+              ?assertEqual({error, {mqtt_error, disconnect, disconnected}}, mqttc_session:disconnect(Pid, 500))
+      end},
+     {"disconnect connected session",
+      fun () ->
+              {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
+              ok = mqttc_session:connect(Pid, <<"localhost">>, 1883, [], 500),
+              connected = mqttc_session:get_status(Pid),
+
+              ?assertEqual(ok, mqttc_session:disconnect(Pid, 500)),
+              ?assertEqual(disconnected, mqttc_session:get_status(Pid))
+      end},
+     {"reconnect after disconnection",
+      fun () ->
+              {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
+              ok = mqttc_session:connect(Pid, <<"localhost">>, 1883, [], 500),
+              connected = mqttc_session:get_status(Pid),
+
+              ok = mqttc_session:disconnect(Pid, 500),
+              disconnected = mqttc_session:get_status(Pid),
+
+              ok = mqttc_session:connect(Pid, <<"localhost">>, 1883, [], 500),
+              connected = mqttc_session:get_status(Pid)
       end}
     ].

@@ -11,6 +11,7 @@
 %% Exported API
 %%------------------------------------------------------------------------------------------------------------------------
 -export([start_link/1]).
+-export([stop/1]).
 
 -export_type([start_arg/0]).
 -export_type([connect_arg/0]).
@@ -40,6 +41,10 @@
 start_link(Arg) ->
     gen_server:start_link(?MODULE, Arg, []).
 
+-spec stop(pid()) -> ok.
+stop(Pid) ->
+    gen_server:cast(Pid, stop).
+
 %%------------------------------------------------------------------------------------------------------------------------
 %% 'gen_server' Callback Functions
 %%------------------------------------------------------------------------------------------------------------------------
@@ -53,6 +58,8 @@ handle_call(Request, From, State) ->
     {stop, {unknown_call, Request, From}, State}.
 
 %% @private
+handle_cast(stop, State) ->
+    {stop, normal, State};
 handle_cast(Request, State) ->
     {stop, {unknown_cast, Request}, State}.
 
@@ -76,8 +83,7 @@ handle_info(Info, State) ->
 
 %% @private
 terminate(_Reason, State = #state{}) ->
-    ok = tcp:close(State#state.socket),
-    ok;
+    do_disconnect(State);
 terminate(_Reason, _State) ->
     ok.
 
@@ -91,6 +97,13 @@ code_change(_OldVsn, State, _Extra) ->
 -spec notify(pid(), term()) -> ok.
 notify(Pid, Message) ->
     _ = Pid ! {mqtt_connection, self(), Message},
+    ok.
+
+-spec do_disconnect(#state{}) -> ok.
+do_disconnect(State) ->
+    Msg = mqttm:make_disconnect(),
+    _ = gen_tcp:send(State#state.socket, mqttm:encode(Msg)),
+    _ = gen_tcp:close(State#state.socket),
     ok.
 
 -spec do_connect(connect_arg()) -> {ok, inet:socket()} | {error, Reason} when
