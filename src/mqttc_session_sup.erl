@@ -27,7 +27,8 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %% @doc Starts child process
--spec start_child(mqttc_session:start_arg()) -> {ok, pid()} | {error, Reason::term()}.
+-spec start_child(mqttc_session:start_arg()) -> {ok, pid()} | {error, Reason} when
+      Reason :: {already_started, pid()} | term().
 start_child(Arg) ->
     supervisor:start_child(?MODULE, [Arg]).
 

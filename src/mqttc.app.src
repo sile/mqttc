@@ -7,8 +7,9 @@
   {applications, [
                   kernel,
                   stdlib,
+                  inets,
                   mqttm,
-                  inets
+                  splay_tree
                  ]},
   {mod, { mqttc_app, []}},
   {env, []}
