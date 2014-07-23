@@ -13,8 +13,8 @@
 -export([get_client_id/1]).
 -export([connect/4, connect/5]).
 -export([disconnect/1, disconnect/2]).
+-export([publish/4]).
 
-%% -export([publish/5]).
 %% -export([subscribe/2]).
 %% -export([unsubscribe/2]).
 %% -export([setopts/2, getopts/2]).
@@ -26,7 +26,7 @@
 -export_type([session_status/0]).
 -export_type([connect_opt/0, connect_opts/0]).
 -export_type([async_opt/0]).
--export_type([from/0]).
+-export_type([publish_opt/0, publish_opts/0]).
 -export_type([tcp_error_reason/0]).
 -export_type([mqtt_error_reason/0]).
 
@@ -55,8 +55,14 @@
                      | {tcp_timeout, timeout()} % default: 5000
                      | {tcp_connect_opts, [gen_tcp:connet_option()]}.
 
--type async_opt() :: {from, from()}.
--type from() :: {pid(), term()}.
+-type async_opt() :: {async, boolean()}
+                   | {notify_tag, term()}.
+
+-type publish_opts() :: [publish_opt()].
+-type publish_opt() :: {qos, mqttm:qos_level()} % default: 0
+                     | {retain, boolean()} % default: false
+                     | {timeout, timeout()} % default: 5000
+                     | async_opt().
 
 -type tcp_error_reason() :: {tcp_error, connect, inet:posix() | timeout}
                           | {tcp_error, send,    inet:posix() | timeout | closed}
@@ -120,15 +126,10 @@ disconnect(Session) ->
 disconnect(Session, Timeout) ->
     mqttc_session:disconnect(Session, Timeout).
 
-%% %% TODO: queueが空になったことを通知してもらう仕組みをつける({active, N}に近い形で設定可能とする)
-%% -spec publish(connection(), mqttm:topic_name(), binary(), mqttm:qos_level(), boolean()) -> ok.
-%% publish(Connection, TopicName, Payload, QosLevel, RetainFlag) ->
-%%     PublishMsg =
-%%         case QosLevel of
-%%             0 -> mqttm:make_publish(TopicName, Payload, RetainFlag);
-%%             _ -> mqttm:make_publish(TopicName, Payload, RetainFlag, QosLevel, false, 0)
-%%         end,
-%%     mqttc_session:publish(Connection, PublishMsg).
+-spec publish(session(), mqttm:topic_name(), binary(), publish_opts()) -> ok | {error, Reason} when
+      Reason :: tcp_error_reason() | mqtt_error_reason().
+publish(Session, TopicName, Payload, Options) ->
+    mqttc_session:publish(Session, TopicName, Payload, Options).
 
 %% -spec subscribe(connection(), [{mqttm:topic_name(), mqttm:qos_level()}]) -> {ok, [mqttm:qos_level()]} | {error, Reason::term()}.
 %% subscribe(Connection, TopicList) ->

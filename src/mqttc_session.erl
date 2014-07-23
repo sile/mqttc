@@ -15,6 +15,7 @@
 -export([get_client_id/1]).
 -export([connect/5]).
 -export([disconnect/2]).
+-export([publish/4]).
 
 -export_type([start_arg/0]).
 
@@ -90,6 +91,17 @@ connect(Session, Address, Port, Options, Timeout) ->
       Reason :: mqttc:tcp_error_reason() | mqttc:mqtt_error_reason().
 disconnect(Session, Timeout) ->
     gen_fsm:sync_send_event(Session, {mqtt_request, disconnect, undefined}, Timeout).
+
+-spec publish(mqttc:session(), mqttm:topic_name(), binary(), mqttc:publish_opts()) -> ok | {error, Reason} when
+      Reason :: mqttc:tcp_error_reason() | mqttc:mqtt_error_reason().
+publish(Session, TopicName, Payload, Options) ->
+    Timeout = proplists:get_value(timeout, Options, 5000),
+    case proplists:get_value(async, Options, false) of
+        false -> gen_fsm:sync_send_event(Session, {mqtt_request, publish, {TopicName, Payload, Options}}, Timeout);
+        true  ->
+            From = {self(), proplists:get_value(notify_tag, Options)}, % TODO: default: value
+            gen_fsm:send_event(Session, {mqtt_async_request, From, publish, {TopicName, Payload, Options}}, Timeout)
+    end.
     
 %%------------------------------------------------------------------------------------------------------------------------
 %% 'gen_fsm' Callback Functions

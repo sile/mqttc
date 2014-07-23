@@ -128,6 +128,26 @@ connect_test_() ->
               {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
               ?assertEqual(ok, mqttc_session:connect(Pid, <<"localhost">>, 1883, [], 500)),
               ?assertEqual(connected, mqttc_session:get_status(Pid))
+      end},
+     {"duplicated connect request",
+      fun () ->
+              {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
+              ok = mqttc_session:connect(Pid, <<"localhost">>, 1883, [], 500),
+              connected = mqttc_session:get_status(Pid),
+
+              ?assertEqual({error, {mqtt_error, connect, connected}}, mqttc_session:connect(Pid, <<"localhost">>, 1883, [], 500)),
+              ?assertEqual(connected, mqttc_session:get_status(Pid))
+      end},
+     %% {"tcp timeout",
+     %%  fun () ->
+     %%          {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
+     %%          ?assertEqual(ok, mqttc_session:connect(Pid, <<"localhost">>, 1883, [{tcp_timeout, 1}], 500)),
+     %%          ?assertEqual(connected, mqttc_session:get_status(Pid))
+     %%  end}
+     {"unknown host",
+      fun () ->
+              {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
+              ?assertMatch({error, {tcp_error, connect, _maybe_nxdomain}}, mqttc_session:connect(Pid, <<"hogehoge">>, 1883, [{tcp_timeout, 10}], 500))
       end}
     ].
 
