@@ -11,7 +11,7 @@
 -export([stop/1]).
 -export([get_session_status/1]).
 -export([get_client_id/1]).
--export([connect/4, connect/5]).
+-export([connect/4]).
 -export([disconnect/1, disconnect/2]).
 -export([publish/4]).
 
@@ -52,7 +52,7 @@
                      | {username, binary()}
                      | {password, binary()}
                      | {will, mqttm:will()}
-                     | {tcp_timeout, timeout()} % default: 5000
+                     | {timeout, timeout()} % default: 5000
                      | {tcp_connect_opts, [gen_tcp:connet_option()]}.
 
 -type async_opt() :: {async, boolean()}
@@ -69,6 +69,7 @@
                           | {tcp_error, recv,    inet:posix() | timeout | closed}.
 
 -type mqtt_error_reason() :: {mqtt_error, connect, {rejected, mqttm:connect_return_code()}}
+                           | {mqtt_error, conncet, {unexpected_response, term()}}
                            | {mqtt_error, Command::atom(), disconnected | connecting | connected}.
 
 %%------------------------------------------------------------------------------------------------------------------------
@@ -104,16 +105,10 @@ get_session_status(Session) ->
 get_client_id(Session) ->
     mqttc_session:get_client_id(Session).
 
-%% @equiv connect(Session, Address, Port, Options, 5000)
 -spec connect(session(), address(), inet:port_number(), connect_opts()) -> ok | {error, Reason} when
       Reason :: tcp_error_reason() | mqtt_error_reason().
 connect(Session, Address, Port, Options) ->
-    connect(Session, Address, Port, Options, 5000).
-
--spec connect(session(), address(), inet:port_number(), connect_opts(), timeout()) -> ok | {error, Reason} when
-      Reason :: tcp_error_reason() | mqtt_error_reason().
-connect(Session, Address, Port, Options, Timeout) ->
-    mqttc_session:connect(Session, Address, Port, Options, Timeout).
+    mqttc_session:connect(Session, Address, Port, Options).
 
 %% @equiv disconnect(Session, 5000)
 -spec disconnect(session()) -> ok | {error, Reason} when

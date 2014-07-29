@@ -147,7 +147,9 @@ connect_test_() ->
      {"unknown host",
       fun () ->
               {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
-              ?assertMatch({error, {tcp_error, connect, _maybe_nxdomain}}, mqttc_session:connect(Pid, <<"hogehoge">>, 1883, [{tcp_timeout, 10}], 500))
+              %% ?assertMatch({error, {tcp_error, connect, _maybe_nxdomain}},
+              %%              mqttc_session:connect(Pid, <<"hogehoge.reduls.net">>, 1883, [{tcp_timeout, 10}], 500))
+              ?assertExit({timeout, _}, mqttc_session:connect(Pid, <<"hogehoge.reduls.net">>, 1883, [{tcp_timeout, 10}], 500))
       end}
     ].
 
