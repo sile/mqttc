@@ -44,7 +44,7 @@ send(Socket, Data, ExpiryTime) ->
 -spec recv(inet:socket(), non_neg_integer(), expiry_time()) -> {ok, iodata()} | {error, inet:posix() | timeout | closed}.
 recv(Socket, Size, ExpiryTime) ->
     Timeout = calc_timeout_from_expiry_time(ExpiryTime),
-    gen_tcp:recv(Socket, Size, Timeout).
+    apply_with_timeout(gen_tcp, recv, [Socket, Size, Timeout], Timeout).
 
 %%------------------------------------------------------------------------------------------------------------------------
 %% Internal Functions

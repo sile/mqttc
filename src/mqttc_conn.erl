@@ -10,11 +10,13 @@
 %%------------------------------------------------------------------------------------------------------------------------
 %% Exported API
 %%------------------------------------------------------------------------------------------------------------------------
--export([start_link/1]).
+-export([start/1, start_link/1]).
 -export([stop/1]).
 
 -export_type([start_arg/0]).
 -export_type([connect_arg/0]).
+-export_type([connection/0]).
+-export_type([owner/0]).
 
 %%------------------------------------------------------------------------------------------------------------------------
 %% Records & Types
@@ -30,6 +32,7 @@
 -type connect_arg() :: {mqttc:address(), inet:port_number(), mqttm:client_id(), mqttc:connect_opts()}.
 
 -type owner() :: pid().
+-type connection() :: pid().
 
 %%------------------------------------------------------------------------------------------------------------------------
 %% 'gen_server' Callback API
@@ -39,11 +42,15 @@
 %%------------------------------------------------------------------------------------------------------------------------
 %% Exported Functions
 %%------------------------------------------------------------------------------------------------------------------------
--spec start_link(start_arg()) -> {ok, pid()} | {error, Reason::term()}.
+-spec start(start_arg()) -> {ok, connection()} | {error, Reason::term()}.
+start(Arg) ->
+    gen_server:start(?MODULE, Arg, []).
+
+-spec start_link(start_arg()) -> {ok, connection()} | {error, Reason::term()}.
 start_link(Arg) ->
     gen_server:start_link(?MODULE, Arg, []).
 
--spec stop(pid()) -> ok.
+-spec stop(connection()) -> ok.
 stop(Pid) ->
     gen_server:cast(Pid, stop).
 
@@ -51,9 +58,7 @@ stop(Pid) ->
 %% 'gen_server' Callback Functions
 %%------------------------------------------------------------------------------------------------------------------------
 %% @private
-init(Arg = {Owner, _}) ->
-    true = link(Owner),
-    {ok, Arg, 0}.
+init(Arg) -> {ok, Arg, 0}.
 
 %% @private
 handle_call(Request, From, State) -> {stop, {unknown_call, Request, From}, State}.
@@ -63,8 +68,9 @@ handle_cast(stop, State)    -> {stop, normal, State};
 handle_cast(Request, State) -> {stop, {unknown_cast, Request}, State}.
 
 %% @private
-handle_info(timeout, Arg) -> handle_initialize(Arg);
-handle_info(Info, State)  -> {stop, {unknown_info, Info}, State}.
+handle_info({'DOWN', _, _, _, Reason}, State) -> handle_owner_down(Reason, State);
+handle_info(timeout, Arg)                     -> handle_initialize(Arg);
+handle_info(Info, State)                      -> {stop, {unknown_info, Info}, State}.
 
 %% @private
 terminate(_Reason, State = #state{}) -> disconnect(State);
@@ -81,10 +87,15 @@ handle_initialize(Arg = {Owner, ConnectArg}) ->
     case connect(ConnectArg) of
         {error, Reason} -> {stop, {shutdown, Reason}, {start_arg, Arg}};
         {ok, Socket}    ->
-            State = #state{owner  = Owner, socket = Socket},
+            _Monitor = monitor(process, Owner),
+            State = #state{owner = Owner, socket = Socket},
             ok = notify(State, connected),
             {noreply, State}
     end.
+
+-spec handle_owner_down(term(), #state{}) -> {stop, Reason::term(), #state{}}.
+handle_owner_down(Reason, State) ->
+    {stop, {shutdown, {owner_down, State#state.owner, Reason}}, State}.
 
 -spec notify(#state{}, term()) -> ok.
 notify(#state{owner = Owner}, Message) ->
