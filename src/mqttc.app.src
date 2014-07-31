@@ -3,7 +3,7 @@
  [
    {description, "An Erlang MQTT Client"},
   {vsn, git},
-  {registered, [mqttc_sup, mqttc_session_sup, mqttc_connection_sup]},
+  {registered, [mqttc_sup, mqttc_session_sup, mqttc_conn_sup]},
   {applications, [
                   kernel,
                   stdlib,
