@@ -308,6 +308,21 @@ recv_test_() ->
                ?assertReceive({mqttc_conn, Conn, Msg}),
 
                ?assertAlive(Conn)
+       end},
+      {"handling of fragmented TCP data",
+       fun () ->
+               {ok, Conn} = mqttc_conn:start(make_dummy_start_arg(self())),
+
+               ok = meck:expect(inet, setopts, 2, ok),
+               ok = mqttc_conn:activate(Conn),
+
+               Socket = mqttc_conn:get_socket(Conn),
+               Msg = mqttm:make_pingresp(),
+               lists:foreach(fun (B) -> Conn ! {tcp, Socket, <<B>>} end,
+                             binary_to_list(iolist_to_binary(mqttm:encode(Msg)))),
+
+               ?assertAlive(Conn),
+               ?assertReceive({mqttc_conn, Conn, Msg})
        end}
      ]}.
 
