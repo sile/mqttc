@@ -14,10 +14,38 @@
          end)()).
 
 -define(assertDown(Pid, ExpectedReason),
-        (fun () ->
-                 Monitor = monitor(process, Pid),
+        (fun (Monitor) ->
                  ?assertDown(Monitor, Pid, ExpectedReason)
+         end)(monitor(process, Pid))).
+
+-define(executeThenAssertDown(Exp, Pid, ExpectedReason),
+        (fun (Monitor) ->
+                 Exp,
+                 ?assertDown(Monitor, Pid, ExpectedReason)
+         end)(monitor(process, Pid))).
+
+-define(assertReceive(ExpectedMessage),
+        (fun () ->
+                 receive
+                     ExpectedMessage -> ?assert(true)
+                 after 100 ->
+                         receive
+                             UnexpectedMessage -> ?assertMatch(ExpectedMessage, UnexpectedMessage)
+                         after 0 -> ?assert(timeout)
+                         end
+                 end
          end)()).
+
+-define(assertNotReceive(UnExpectedMessage),
+        (fun () ->
+                 receive
+                     UnExpectedMessage = ReceivedMessage->
+                         ?debugVal(ReceivedMessage),
+                         ?assert(unexpected_message_received)
+                 after 50 -> ?assert(true)
+                 end
+         end)()).
+
 
 -define(assertAlive(Pid),
         (fun () ->
@@ -26,7 +54,7 @@
                          ?debugVal(Pid),
                          ?debugVal(Reason),
                          ?assert(process_unexpectedly_down)
-                 after 100 ->
+                 after 50 ->
                          _ = demonitor(Monitor, [flush]),
                          ?assert(true)
                  end

@@ -66,7 +66,8 @@
 
 -type tcp_error_reason() :: {tcp_error, connect, inet:posix() | timeout}
                           | {tcp_error, send,    inet:posix() | timeout | closed}
-                          | {tcp_error, recv,    inet:posix() | timeout | closed}.
+                          | {tcp_error, recv,    inet:posix() | timeout | closed}
+                          | {tcp_error, setopts, inet:posix()}.
 
 -type mqtt_error_reason() :: {mqtt_error, connect, {rejected, mqttm:connect_return_code()}}
                            | {mqtt_error, conncet, {unexpected_response, term()}}

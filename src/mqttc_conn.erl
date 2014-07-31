@@ -12,20 +12,25 @@
 %%------------------------------------------------------------------------------------------------------------------------
 -export([start/1, start_link/1]).
 -export([stop/1]).
+-export([send/2]).
+-export([activate/1, inactivate/1]).
+-export([get_socket/1]).
 
 -export_type([start_arg/0]).
 -export_type([connect_arg/0]).
 -export_type([connection/0]).
 -export_type([owner/0]).
+-export_type([recv_tag/0]).
 
 %%------------------------------------------------------------------------------------------------------------------------
 %% Records & Types
 %%------------------------------------------------------------------------------------------------------------------------
 -record(state,
         {
-          owner            :: owner(),
-          socket           :: inet:socket(),
-          recv_data = <<>> :: binary()
+          owner             :: owner(),
+          socket            :: inet:socket(),
+          recv_data = <<>>  :: binary(),
+          is_active = false :: boolean()
         }).
 
 -type start_arg()   :: {owner(), connect_arg()}.
@@ -33,6 +38,8 @@
 
 -type owner() :: pid().
 -type connection() :: pid().
+
+-type recv_tag() :: term().
 
 %%------------------------------------------------------------------------------------------------------------------------
 %% 'gen_server' Callback API
@@ -54,6 +61,23 @@ start_link(Arg) ->
 stop(Pid) ->
     gen_server:cast(Pid, stop).
 
+-spec send(connection(), mqttm:message()) -> ok.
+send(Pid, Message) ->
+    gen_server:cast(Pid, {send, Message}).
+
+-spec activate(connection()) -> ok.
+activate(Pid) ->
+    gen_server:cast(Pid, {active, true}).
+
+-spec inactivate(connection()) -> ok.
+inactivate(Pid) ->
+    gen_server:cast(Pid, {active, false}).
+
+%% for debug purpose
+-spec get_socket(connection()) -> inet:socket().
+get_socket(Pid) ->
+    gen_server:call(Pid, get_socket).
+
 %%------------------------------------------------------------------------------------------------------------------------
 %% 'gen_server' Callback Functions
 %%------------------------------------------------------------------------------------------------------------------------
@@ -61,13 +85,19 @@ stop(Pid) ->
 init(Arg) -> {ok, Arg, 0}.
 
 %% @private
-handle_call(Request, From, State) -> {stop, {unknown_call, Request, From}, State}.
+handle_call(get_socket, _From, State) -> {reply, State#state.socket, State};
+handle_call(Request, From, State)     -> {stop, {unknown_call, Request, From}, State}.
 
 %% @private
-handle_cast(stop, State)    -> {stop, normal, State};
-handle_cast(Request, State) -> {stop, {unknown_cast, Request}, State}.
+handle_cast({send, Arg}, State)   -> handle_send(Arg, State);
+handle_cast({active, Arg}, State) -> handle_active(Arg, State);
+handle_cast(stop, State)          -> {stop, normal, State};
+handle_cast(Request, State)       -> {stop, {unknown_cast, Request}, State}.
 
 %% @private
+handle_info({tcp, _, Data}, State)            -> handle_recv(Data, State);
+handle_info({tcp_error, _, Reason}, State)    -> {stop, {shutdown, {tcp_error, recv, Reason}}, State};
+handle_info({tcp_closed, _}, State)           -> {stop, {shutdown, {tcp_error, recv, closed}}, State};
 handle_info({'DOWN', _, _, _, Reason}, State) -> handle_owner_down(Reason, State);
 handle_info(timeout, Arg)                     -> handle_initialize(Arg);
 handle_info(Info, State)                      -> {stop, {unknown_info, Info}, State}.
@@ -89,7 +119,7 @@ handle_initialize(Arg = {Owner, ConnectArg}) ->
         {ok, Socket}    ->
             _Monitor = monitor(process, Owner),
             State = #state{owner = Owner, socket = Socket},
-            ok = notify(State, connected),
+            ok = notify(connected, State),
             {noreply, State}
     end.
 
@@ -97,9 +127,34 @@ handle_initialize(Arg = {Owner, ConnectArg}) ->
 handle_owner_down(Reason, State) ->
     {stop, {shutdown, {owner_down, State#state.owner, Reason}}, State}.
 
--spec notify(#state{}, term()) -> ok.
-notify(#state{owner = Owner}, Message) ->
-    _ = Owner ! {mqtt_connection, self(), Message},
+-spec handle_send(mqttm:message(), #state{}) -> {noreply, #state{}} | {stop, Reason::term(), #state{}}.
+handle_send(Message, State) ->
+    case gen_tcp:send(State#state.socket, mqttm:encode(Message)) of
+        {error, Reason} -> {stop, Reason, State};
+        ok              -> {noreply, State}
+    end.
+
+-spec handle_active(boolean(), #state{}) -> {noreply, #state{}} | {stop, Reason::term(), #state{}}.
+handle_active(Activeness, State) ->
+    case inet:setopts(State#state.socket, [{active, Activeness}]) of
+        ok              -> handle_recv(<<>>, State#state{is_active = Activeness});
+        {error, Reason} -> {stop, {shutdown, {tcp_error, setopts, Reason}}, State}
+    end.
+
+-spec handle_recv(binary(), #state{}) -> {noreply, #state{}}.
+handle_recv(Data0, State) ->
+    Data1 = <<(State#state.recv_data)/binary, Data0/binary>>,
+    case State#state.is_active of
+        false -> {noreply, State#state{recv_data = Data1}};
+        true  ->
+            {Messages, Data2} = mqttm:decode(Data1),
+            ok = lists:foreach(fun (M) -> notify(M, State) end, Messages),
+            {noreply, State#state{recv_data = Data2}}
+    end.
+
+-spec notify(term(), #state{}) -> ok.
+notify(Message, #state{owner = Owner}) ->
+    _ = Owner ! {?MODULE, self(), Message},
     ok.
 
 -spec connect(connect_arg()) -> {ok, inet:socket()} | {error, Reason} when

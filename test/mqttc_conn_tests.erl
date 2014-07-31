@@ -30,6 +30,8 @@ start_and_connect_test_() ->
                ?assertMatch({ok, _}, Result),
                {ok, Pid} = Result,
 
+               ?assertReceive({mqttc_conn, Pid, connected}),
+
                %% stop
                ok = mqttc_conn:stop(Pid),
                ?assertDown(Pid, normal),
@@ -205,6 +207,107 @@ start_and_connect_test_() ->
                ?assert(meck:called(gen_tcp, connect, ['_', '_', '_', '_'])),
                ?assert(meck:called(gen_tcp, send, [Socket, '_'])),
                ?assert(meck:called(gen_tcp, recv, [Socket, '_', '_']))
+       end}
+     ]}.
+
+send_test_() ->
+    {foreach, spawn,
+     fun () ->
+             ok = meck:new(gen_tcp, [unstick]),
+
+             Socket = self(), % dummy socket
+             ok = meck:expect(gen_tcp, connect, 4, {ok, Socket}),
+             ok = meck:expect(gen_tcp, send, 2, ok),
+             ok = meck:expect(gen_tcp, recv, 3, {ok, iolist_to_binary(mqttm:encode(mqttm:make_connack(0)))}),
+             ok = meck:expect(gen_tcp, close, 1, ok)
+     end,
+     fun (_) ->
+             _ = meck:unload()
+     end,
+     [
+      {"send MQTT message",
+       fun () ->
+               {ok, Conn} = mqttc_conn:start(make_dummy_start_arg()),
+
+               Msg = mqttm:make_pingreq(),
+               ?assert(not meck:called(gen_tcp, send, ['_', mqttm:encode(Msg)])),
+               ?assertEqual(ok, mqttc_conn:send(Conn, Msg)),
+
+               _ = sys:get_state(Conn), % for synchonization
+               ?assert(meck:called(gen_tcp, send, ['_', mqttm:encode(Msg)]))
+       end},
+      {"connection process will exit if sending message is failed",
+       fun () ->
+               {ok, Conn} = mqttc_conn:start(make_dummy_start_arg()),
+
+               ?executeThenAssertDown(
+                  begin
+                      ok = meck:expect(gen_tcp, send, 2, {error, something_wrong}),
+                      Msg = mqttm:make_pingreq(),
+                      ?assertEqual(ok, mqttc_conn:send(Conn, Msg)) % Return value of send/2 always be 'ok',
+                  end,
+                  Conn, {shutdown, {tcp_error, send, something_wrong}})
+       end}
+     ]}.
+
+recv_test_() ->
+    {foreach, spawn,
+     fun () ->
+             ok = meck:new(inet, [unstick]),
+             ok = meck:new(gen_tcp, [unstick]),
+
+             Socket = self(), % dummy socket
+             ok = meck:expect(gen_tcp, connect, 4, {ok, Socket}),
+             ok = meck:expect(gen_tcp, send, 2, ok),
+             ok = meck:expect(gen_tcp, recv, 3, {ok, iolist_to_binary(mqttm:encode(mqttm:make_connack(0)))}),
+             ok = meck:expect(gen_tcp, close, 1, ok)
+     end,
+     fun (_) ->
+             _ = meck:unload()
+     end,
+     [
+      {"connection received message is redirected to owner process",
+       fun () ->
+               {ok, Conn} = mqttc_conn:start(make_dummy_start_arg(self())),
+
+               ok = meck:expect(inet, setopts, 2, ok),
+               ok = mqttc_conn:activate(Conn),
+
+               Socket = mqttc_conn:get_socket(Conn),
+               Msg = mqttm:make_pingresp(),
+               Conn ! {tcp, Socket, iolist_to_binary(mqttm:encode(Msg))}, % emulate sending tcp data
+
+               ?assertAlive(Conn),
+               ?assertReceive({mqttc_conn, Conn, Msg}),
+
+               ?assert(meck:called(inet, setopts, [Socket, [{active, true}]]))
+       end},
+      {"connection received message is redirected to owner process only when connection process is active",
+       fun () ->
+               {ok, Conn} = mqttc_conn:start(make_dummy_start_arg(self())),
+
+               ok = meck:expect(inet, setopts, 2, ok),
+               Socket = mqttc_conn:get_socket(Conn),
+               Msg = mqttm:make_pingresp(),
+               Conn ! {tcp, Socket, iolist_to_binary(mqttm:encode(Msg))}, % emulate sending tcp data
+
+               %% inactive
+               ?assertNotReceive({mqttc_conn, Conn, Msg}),
+
+               %% active
+               ok = mqttc_conn:activate(Conn),
+               ?assertReceive({mqttc_conn, Conn, Msg}),
+
+               %% inactive
+               ok = mqttc_conn:inactivate(Conn),
+               Conn ! {tcp, Socket, iolist_to_binary(mqttm:encode(Msg))}, % emulate sending tcp data
+               ?assertNotReceive({mqttc_conn, Conn, Msg}),
+
+               %% active
+               ok = mqttc_conn:activate(Conn),
+               ?assertReceive({mqttc_conn, Conn, Msg}),
+
+               ?assertAlive(Conn)
        end}
      ]}.
 
