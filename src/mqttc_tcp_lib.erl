@@ -15,6 +15,11 @@
 -export_type([expiry_time/0]).
 
 %%------------------------------------------------------------------------------------------------------------------------
+%% Internal API
+%%------------------------------------------------------------------------------------------------------------------------
+-export([connect_and_delegate_owner/5]).
+
+%%------------------------------------------------------------------------------------------------------------------------
 %% Types
 %%------------------------------------------------------------------------------------------------------------------------
 -type expiry_time() :: erlang:timestamp() | infinity.
@@ -34,7 +39,7 @@ connect(Address, Port, Options, ExpiryTime) when is_binary(Address) ->
     connect(binary_to_list(Address), Port, Options, ExpiryTime);
 connect(Address, Port, Options, ExpiryTime) ->
     Timeout = calc_timeout_from_expiry_time(ExpiryTime),
-    apply_with_timeout(gen_tcp, connect, [Address, Port, Options, Timeout], Timeout).
+    apply_with_timeout(?MODULE, connect_and_delegate_owner, [self(), Address, Port, Options, Timeout], Timeout).
 
 -spec send(inet:socket(), iodata(), expiry_time()) -> ok | {error, inet:posix() | timeout | closed}.
 send(Socket, Data, ExpiryTime) ->
@@ -49,6 +54,20 @@ recv(Socket, Size, ExpiryTime) ->
 %%------------------------------------------------------------------------------------------------------------------------
 %% Internal Functions
 %%------------------------------------------------------------------------------------------------------------------------
+%% @private
+-spec connect_and_delegate_owner(pid(), inet:ip_address()|inet:hostname(), inet:port_number(),
+                                 [gen_tcp:connect_option()], timeout()) ->
+                                        {ok, inet:socket()} | {error, inet:posix() | timeout}.
+connect_and_delegate_owner(Owner, Address, Port, Options, Timeout) ->
+    case gen_tcp:connect(Address, Port, Options, Timeout) of
+        {error, Reason} -> {error, Reason};
+        {ok, Socket}    ->
+            case gen_tcp:controlling_process(Socket, Owner) of
+                {error, Reason} -> {error, Reason};
+                ok              -> {ok, Socket}
+            end
+    end.
+
 -spec calc_timeout_from_expiry_time(expiry_time()) -> timeout().
 calc_timeout_from_expiry_time(infinity)   -> infinity;
 calc_timeout_from_expiry_time(ExpiryTime) ->

@@ -28,7 +28,7 @@ start_link() ->
 
 %% @doc Starts child process
 -spec start_child(mqttc_connection:start_arg()) -> {ok, pid()} | {error, Reason} when
-      Reason :: {already_started, pid()} | term().
+      Reason :: term().
 start_child(Arg) ->
     supervisor:start_child(?MODULE, [Arg]).
 

@@ -20,6 +20,7 @@ start_and_connect_test_() ->
                %% mock
                Socket = self(), % dummy socket
                ok = meck:expect(gen_tcp, connect, 4, {ok, Socket}),
+               ok = meck:expect(gen_tcp, controlling_process, 2, ok),
                ok = meck:expect(gen_tcp, send, 2, ok),
                ok = meck:expect(gen_tcp, recv, 3, {ok, iolist_to_binary(mqttm:encode(mqttm:make_connack(0)))}),
                ok = meck:expect(gen_tcp, close, 1, ok),
@@ -86,6 +87,7 @@ start_and_connect_test_() ->
                %% mock
                Socket = self(), % dummy socket
                ok = meck:expect(gen_tcp, connect, 4, {ok, Socket}),
+               ok = meck:expect(gen_tcp, controlling_process, 2, ok),
                ok = meck:expect(gen_tcp, send, 2, {error, something_wrong}),
 
                %% start
@@ -102,6 +104,7 @@ start_and_connect_test_() ->
                %% mock
                Socket = self(), % dummy socket
                ok = meck:expect(gen_tcp, connect, 4, {ok, Socket}),
+               ok = meck:expect(gen_tcp, controlling_process, 2, ok),
                ok = meck:expect(gen_tcp, send, fun (_, _) -> timer:sleep(infinity) end), % blocking
 
                %% start
@@ -118,6 +121,7 @@ start_and_connect_test_() ->
                %% mock
                Socket = self(), % dummy socket
                ok = meck:expect(gen_tcp, connect, 4, {ok, Socket}),
+               ok = meck:expect(gen_tcp, controlling_process, 2, ok),
                ok = meck:expect(gen_tcp, send, 2, ok),
                ok = meck:expect(gen_tcp, recv, 3, {error, something_wrong}),
 
@@ -136,6 +140,7 @@ start_and_connect_test_() ->
                %% mock
                Socket = self(), % dummy socket
                ok = meck:expect(gen_tcp, connect, 4, {ok, Socket}),
+               ok = meck:expect(gen_tcp, controlling_process, 2, ok),
                ok = meck:expect(gen_tcp, send, 2, ok),
                ok = meck:expect(gen_tcp, recv, fun (_, _, _) -> timer:sleep(infinity) end), % blocking
 
@@ -156,6 +161,7 @@ start_and_connect_test_() ->
                ErrorConnackMsg = mqttm:make_connack(ErrorCode),
                Socket = self(), % dummy socket
                ok = meck:expect(gen_tcp, connect, 4, {ok, Socket}),
+               ok = meck:expect(gen_tcp, controlling_process, 2, ok),
                ok = meck:expect(gen_tcp, send, 2, ok),
                ok = meck:expect(gen_tcp, recv, 3, {ok, iolist_to_binary(mqttm:encode(ErrorConnackMsg))}),
 
@@ -175,6 +181,7 @@ start_and_connect_test_() ->
                UnexpectedMsg = mqttm:make_disconnect(),
                Socket = self(), % dummy socket
                ok = meck:expect(gen_tcp, connect, 4, {ok, Socket}),
+               ok = meck:expect(gen_tcp, controlling_process, 2, ok),
                ok = meck:expect(gen_tcp, send, 2, ok),
                ok = meck:expect(gen_tcp, recv, 3, {ok, iolist_to_binary(mqttm:encode(UnexpectedMsg))}),
 
@@ -195,6 +202,7 @@ start_and_connect_test_() ->
                InvalidMqttBytes = <<0,0,0,0>>,
                Socket = self(), % dummy socket
                ok = meck:expect(gen_tcp, connect, 4, {ok, Socket}),
+               ok = meck:expect(gen_tcp, controlling_process, 2, ok),
                ok = meck:expect(gen_tcp, send, 2, ok),
                ok = meck:expect(gen_tcp, recv, 3, {ok, InvalidMqttBytes}),
 
@@ -217,6 +225,7 @@ send_test_() ->
 
              Socket = self(), % dummy socket
              ok = meck:expect(gen_tcp, connect, 4, {ok, Socket}),
+             ok = meck:expect(gen_tcp, controlling_process, 2, ok),
              ok = meck:expect(gen_tcp, send, 2, ok),
              ok = meck:expect(gen_tcp, recv, 3, {ok, iolist_to_binary(mqttm:encode(mqttm:make_connack(0)))}),
              ok = meck:expect(gen_tcp, close, 1, ok)
@@ -258,6 +267,7 @@ recv_test_() ->
 
              Socket = self(), % dummy socket
              ok = meck:expect(gen_tcp, connect, 4, {ok, Socket}),
+             ok = meck:expect(gen_tcp, controlling_process, 2, ok),
              ok = meck:expect(gen_tcp, send, 2, ok),
              ok = meck:expect(gen_tcp, recv, 3, {ok, iolist_to_binary(mqttm:encode(mqttm:make_connack(0)))}),
              ok = meck:expect(gen_tcp, close, 1, ok)
@@ -410,6 +420,7 @@ with_connection(Fun) ->
     fun () ->
             Socket = spawn_link(timer, sleep, [infinity]), % dummy socket
             ok = meck:expect(gen_tcp, connect, 4, {ok, Socket}),
+            ok = meck:expect(gen_tcp, controlling_process, 2, ok),
             ok = meck:expect(gen_tcp, send, 2, ok),
             ok = meck:expect(gen_tcp, recv, 3, {ok, iolist_to_binary(mqttm:encode(mqttm:make_connack(0)))}),
             ok = meck:expect(gen_tcp, close, 1, ok),
@@ -431,6 +442,7 @@ with_connection(Owner, Fun) ->
     fun () ->
             Socket = spawn_link(timer, sleep, [infinity]), % dummy socket
             ok = meck:expect(gen_tcp, connect, 4, {ok, Socket}),
+            ok = meck:expect(gen_tcp, controlling_process, 2, ok),
             ok = meck:expect(gen_tcp, send, 2, ok),
             ok = meck:expect(gen_tcp, recv, 3, {ok, iolist_to_binary(mqttm:encode(mqttm:make_connack(0)))}),
             ok = meck:expect(gen_tcp, close, 1, ok),

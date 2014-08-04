@@ -1,185 +1,175 @@
 %% @copyright 2014 Takeru Ohta <phjgt308@gmail.com>
 %%
-%% @doc TODO
 -module(mqttc_session_tests).
 
 -include_lib("eunit/include/eunit.hrl").
--on_load(start_app/0).
+-include("mqttc_eunit.hrl").
 
-%%------------------------------------------------------------------------------------------------------------------------
-%% On Load
-%%------------------------------------------------------------------------------------------------------------------------
-start_app() ->
-    {ok, _} = application:ensure_all_started(mqttc),
-    _ = error_logger:tty(false),
-    ok.
-
-%%------------------------------------------------------------------------------------------------------------------------
-%% Macros
-%%------------------------------------------------------------------------------------------------------------------------
--define(CLIENT_ID, <<"hoge">>).
-
--define(assertDownWithoutMonitor(Pid, ExpectedReason),
-        (fun () ->
-                 receive {'DOWN', _, _, Pid, Reason} -> ?assertMatch(ExpectedReason, Reason) after 100 -> ?assert(timeout) end
-         end)()).
-
--define(assertDown(Pid, ExpectedReason),
-        (fun () ->
-                 monitor(process, Pid),
-                 ?assertDownWithoutMonitor(Pid, ExpectedReason)
-         end)()).
+-on_load(on_load/0).
 
 %%------------------------------------------------------------------------------------------------------------------------
 %% Unit Tests
 %%------------------------------------------------------------------------------------------------------------------------
-start_and_stop_test_() ->
-    [
-     {"Starts anonymous process",
-      fun () ->
-              Name = undefined, % anonymous
+start_and_connect_test_() ->
+    {foreach, spawn,
+     fun () -> ok end,
+     fun (_) -> ok end,
+     [
+      {"start and stop",
+       fun () ->
+               %% start
+               Result = mqttc_session:start_link(make_dummy_start_arg()),
+               ?assertMatch({ok, _}, Result),
+               {ok, Pid} = Result,
 
-              %% start
-              Result = mqttc_session:start_link({Name, self(), ?CLIENT_ID}),
-              ?assertMatch({ok, _}, Result),
-              {ok, Pid} = Result,
+               %% stop
+               ok = mqttc_conn:stop(Pid),
+               ?assertDown(Pid, normal)
+       end}
+     ]}.
 
-              %% stop
-              ok = mqttc_session:stop(Pid),
+signal_handling_test_() ->
+    {foreach, spawn,
+     fun () -> ok end,
+     fun (_) -> ok end,
+     [
+      {"session process exited when it receives a signal",
+       fun () ->
+               {ok, Pid} = mqttc_session:start(make_dummy_start_arg()),
+               exit(Pid, {shutdown, hoge}),
 
-              ?assertDown(Pid, normal)
-      end},
-     {"Starts named process",
-      fun () ->
-              Name = hogehoge,
+               ?assertDown(Pid, {shutdown, hoge})
+       end},
+      {"'normal' signal is ignored",
+       fun () ->
+               {ok, Pid} = mqttc_session:start_link(make_dummy_start_arg()),
+               exit(Pid, normal),
 
-              %% start
-              Result = mqttc_session:start_link({{local, Name}, self(), ?CLIENT_ID}),
-              ?assertMatch({ok, _}, Result),
-              {ok, Pid} = Result,
+               ?assertAlive(Pid)
+       end}
+     ]}.
 
-              %% name conflict
-              ?assertEqual({error, {already_started, Pid}}, mqttc_session:start_link({{local, Name}, self(), ?CLIENT_ID})),
+owner_down_test_() ->
+    {foreach, spawn,
+     fun () -> ok end,
+     fun (_) -> ok end,
+     [
+      {"session process will exit when it's owner is down",
+       fun () ->
+               Owner = spawn(timer, sleep, [infinity]),
+               {ok, Pid} = mqttc_session:start(make_dummy_start_arg(Owner)),
 
-              %% stop by name
-              ok = mqttc_session:stop(Name),
+               exit(Owner, {shutdown, hoge}),
 
-              ?assertDown(Pid, normal)
-      end},
-     {"Starts process with linked owner",
-      fun () ->
-              Name = undefined, % anonymous
-              OwnerPid = spawn(timer, sleep, [infinity]),
+               ?assertDown(Pid, {shutdown, {owner_down, Owner, {shutdown, hoge}}})
+       end},
+      {"connection process will exit when it's owner is normally stopped",
+       fun () ->
+               Owner = spawn(fun () -> receive stop -> ok end end),
+               {ok, Pid} = mqttc_session:start(make_dummy_start_arg(Owner)),
 
-              %% start
-              {ok, SessionPid} = mqttc_session:start_link({Name, {link, OwnerPid}, ?CLIENT_ID}),
-              true = unlink(SessionPid),
-
-              monitor(process, SessionPid),
-              monitor(process, OwnerPid),
-              exit(SessionPid, something_wrong),
-              
-              ?assertDownWithoutMonitor(SessionPid, something_wrong),
-              ?assertDownWithoutMonitor(OwnerPid, something_wrong) % OwnerPid has been linked to SessionPid
-      end},
-     {"Started process is linked to caller process",
-      fun () ->
-              ParentPid = self(),
-              CallerPid = spawn(fun () ->
-                                        {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
-                                        ParentPid ! {session, Pid},
-                                        timer:sleep(infinity)
-                                end),
-              receive {session, SessionPid} -> ok end,
-
-              monitor(process, CallerPid),
-              monitor(process, SessionPid),
-              exit(CallerPid, something_wrong),
-
-              ?assertDownWithoutMonitor(CallerPid, something_wrong),
-              ?assertDownWithoutMonitor(SessionPid, something_wrong)
-      end},
-     {"Stops non existing process",
-      fun () ->
-              Pid = spawn(fun () -> timer:sleep(5) end),
-              ?assertDown(Pid, normal),
-
-              ?assertEqual(ok, mqttc_session:stop(Pid)) % no error
-      end}
-    ].
-
-get_session_status_test_() ->
-    [
-     {"session status: disconnected",
-      fun () ->
-              {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
-              ?assertEqual(disconnected, mqttc_session:get_status(Pid))
-      end}
-    ].
-
-get_client_id_test() ->
-    {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
-    ?assertEqual(?CLIENT_ID, mqttc_session:get_client_id(Pid)).
+               ?executeThenAssertDown(
+                  Owner ! stop,
+                  Pid, {shutdown, {owner_down, Owner, normal}})
+       end}
+     ]}.
 
 connect_test_() ->
-    [
-     {"basic connect",
-      fun () ->
-              {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
-              ?assertEqual(ok, mqttc_session:connect(Pid, <<"localhost">>, 1883, [], 500)),
-              ?assertEqual(connected, mqttc_session:get_status(Pid))
-      end},
-     {"duplicated connect request",
-      fun () ->
-              {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
-              ok = mqttc_session:connect(Pid, <<"localhost">>, 1883, [], 500),
-              connected = mqttc_session:get_status(Pid),
+    {foreach, spawn,
+     fun () ->
+             ok = meck:new(mqttc_conn_sup, []),
+             ok = meck:new(mqttc_conn, [])
+     end,
+     fun (_) ->
+             _ = meck:unload()
+     end,
+     [
+      {"basic connect",
+       fun () ->
+               %% start
+               {ok, Pid} = mqttc_session:start_link(make_dummy_start_arg()),
+               ?assertEqual(disconnected, mqttc_session:get_status(Pid)),
 
-              ?assertEqual({error, {mqtt_error, connect, connected}}, mqttc_session:connect(Pid, <<"localhost">>, 1883, [], 500)),
-              ?assertEqual(connected, mqttc_session:get_status(Pid))
-      end},
-     %% {"tcp timeout",
-     %%  fun () ->
-     %%          {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
-     %%          ?assertEqual(ok, mqttc_session:connect(Pid, <<"localhost">>, 1883, [{tcp_timeout, 1}], 500)),
-     %%          ?assertEqual(connected, mqttc_session:get_status(Pid))
-     %%  end}
-     {"unknown host",
-      fun () ->
-              {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
-              %% ?assertMatch({error, {tcp_error, connect, _maybe_nxdomain}},
-              %%              mqttc_session:connect(Pid, <<"hogehoge.reduls.net">>, 1883, [{tcp_timeout, 10}], 500))
-              ?assertExit({timeout, _}, mqttc_session:connect(Pid, <<"hogehoge.reduls.net">>, 1883, [{tcp_timeout, 10}], 500))
-      end}
-    ].
+               %% connect
+               ok = mock_successful_connect(Pid),
+               ?assertEqual(ok, mqttc_session:connect(Pid, "localhost", 1883, [])),
+               ?assertEqual(connected, mqttc_session:get_status(Pid))
+       end},
+      {"connect => disconnect => connect",
+       fun () ->
+               %% start
+               {ok, Pid} = mqttc_session:start_link(make_dummy_start_arg()),
+               ?assertEqual(disconnected, mqttc_session:get_status(Pid)),
 
-disconnect_test_() ->
-    [
-     {"invoke disconnect request to non connected session",
-      fun () ->
-              {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
-              ?assertEqual(disconnected, mqttc_session:get_status(Pid)),
-              ?assertEqual({error, {mqtt_error, disconnect, disconnected}}, mqttc_session:disconnect(Pid, 500))
-      end},
-     {"disconnect connected session",
-      fun () ->
-              {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
-              ok = mqttc_session:connect(Pid, <<"localhost">>, 1883, [], 500),
-              connected = mqttc_session:get_status(Pid),
+               %% connect
+               ok = mock_successful_connect(Pid),
+               ?assertEqual(ok, mqttc_session:connect(Pid, "localhost", 1883, [])),
+               ?assertEqual(connected, mqttc_session:get_status(Pid)),
 
-              ?assertEqual(ok, mqttc_session:disconnect(Pid, 500)),
-              ?assertEqual(disconnected, mqttc_session:get_status(Pid))
-      end},
-     {"reconnect after disconnection",
-      fun () ->
-              {ok, Pid} = mqttc_session:start_link({undefined, self(), ?CLIENT_ID}),
-              ok = mqttc_session:connect(Pid, <<"localhost">>, 1883, [], 500),
-              connected = mqttc_session:get_status(Pid),
+               %% disconnect
+               ok = meck:expect(mqttc_conn, stop, fun (Conn) -> _ = Conn ! stop, ok end),
+               ?assertEqual(ok, mqttc_session:disconnect(Pid, 1000)),
+               ?assertEqual(disconnected, mqttc_session:get_status(Pid)),
 
-              ok = mqttc_session:disconnect(Pid, 500),
-              disconnected = mqttc_session:get_status(Pid),
+               %% connect
+               ?assertEqual(ok, mqttc_session:connect(Pid, "localhost", 1883, [])),
+               ?assertEqual(connected, mqttc_session:get_status(Pid))
+       end},
+      {"invalid request: connect => connect",
+       fun () ->
+               %% start
+               {ok, Pid} = mqttc_session:start_link(make_dummy_start_arg()),
+               ?assertEqual(disconnected, mqttc_session:get_status(Pid)),
 
-              ok = mqttc_session:connect(Pid, <<"localhost">>, 1883, [], 500),
-              connected = mqttc_session:get_status(Pid)
-      end}
-    ].
+               %% connect
+               ok = mock_successful_connect(Pid),
+               ?assertEqual(ok, mqttc_session:connect(Pid, "localhost", 1883, [])),
+               ?assertEqual(connected, mqttc_session:get_status(Pid)),
+
+               %% connect
+               ?assertEqual({error, {mqtt_error, connect, connected}}, mqttc_session:connect(Pid, "localhost", 1883, [])),
+               ?assertEqual(connected, mqttc_session:get_status(Pid))
+       end},
+      {"disconnect request always return 'ok'",
+       fun () ->
+               %% start
+               {ok, Pid} = mqttc_session:start_link(make_dummy_start_arg()),
+               ?assertEqual(disconnected, mqttc_session:get_status(Pid)),
+
+               %% disconnect
+               ok = meck:expect(mqttc_conn, stop, fun (Conn) -> _ = Conn ! stop, ok end),
+               ?assertEqual(ok, mqttc_session:disconnect(Pid, 1000)),
+               ?assertEqual(disconnected, mqttc_session:get_status(Pid))
+       end}
+      ]}.    
+
+%%------------------------------------------------------------------------------------------------------------------------
+%% Internal Functions
+%%------------------------------------------------------------------------------------------------------------------------
+-spec on_load() -> ok.
+on_load() ->
+    _ = error_logger:tty(false),
+    ok.
+
+-spec make_dummy_start_arg() -> mqttc_conn:start_arg().
+make_dummy_start_arg() ->
+    make_dummy_start_arg(self()).
+
+-spec make_dummy_start_arg(mqttc_conn:owner()) -> mqttc_conn:start_arg().
+make_dummy_start_arg(Owner) ->
+    ClientId = <<"hoge">>,
+    {undefined, Owner, ClientId}.
+
+-spec mock_successful_connect(mqttc_session:session()) -> ok.
+mock_successful_connect(SessionPid) ->
+    ok = meck:expect(mqttc_conn_sup, start_child,
+                     fun (_) ->
+                             {ok,
+                              spawn_link(fun () ->
+                                                 SessionPid ! {mqttc_conn, self(), connected},
+                                                 receive
+                                                     stop -> ok
+                                                 end
+                                         end)}
+                     end),
+    ok.

@@ -27,10 +27,10 @@
 %%------------------------------------------------------------------------------------------------------------------------
 -record(state,
         {
-          owner             :: owner(),
-          socket            :: inet:socket(),
-          recv_data = <<>>  :: binary(),
-          is_active = false :: boolean()
+          owner            :: owner(),
+          socket           :: inet:socket(),
+          recv_data = <<>> :: binary(),
+          active = 0       :: non_neg_integer() % XXX: name 
         }).
 
 -type start_arg()   :: {owner(), connect_arg()}.
@@ -135,18 +135,23 @@ handle_send(Message, State) ->
     end.
 
 -spec handle_active(boolean(), #state{}) -> {noreply, #state{}} | {stop, Reason::term(), #state{}}.
-handle_active(Activeness, State) ->
+handle_active(true, State = #state{active = N}) when N > 0 ->
+    {noreply, State#state{active = N + 1}};
+handle_active(false, State = #state{active = N}) when N =/= 1 ->
+    {noreply, State#state{active = max(0, N - 1)}};
+handle_active(Activeness, State = #state{active = Count}) ->
+    Delta = case Activeness of true -> 1; false -> -1 end,
     case inet:setopts(State#state.socket, [{active, Activeness}]) of
-        ok              -> handle_recv(<<>>, State#state{is_active = Activeness});
+        ok              -> handle_recv(<<>>, State#state{active = Count + Delta});
         {error, Reason} -> {stop, {shutdown, {tcp_error, setopts, Reason}}, State}
     end.
 
 -spec handle_recv(binary(), #state{}) -> {noreply, #state{}}.
 handle_recv(Data0, State) ->
     Data1 = <<(State#state.recv_data)/binary, Data0/binary>>,
-    case State#state.is_active of
-        false -> {noreply, State#state{recv_data = Data1}};
-        true  ->
+    case State#state.active of
+        0 -> {noreply, State#state{recv_data = Data1}};
+        _ ->
             {Messages, Data2} = mqttm:decode(Data1),
             ok = lists:foreach(fun (M) -> notify(M, State) end, Messages),
             {noreply, State#state{recv_data = Data2}}
