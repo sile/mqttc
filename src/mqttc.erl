@@ -14,6 +14,7 @@
 -export([setopts/2, getopts/2]).
 %%-export([controlling_process/2]).
 -export([which_connections/0]).
+-export([ping/1]).
 
 -exprot_type([address/0]).
 -export_type([connection/0]).
@@ -46,6 +47,10 @@ close(Connection) when is_pid(Connection) ->
     mqttc_session:close(Connection);
 close(Connection) ->
     error(badarg, [Connection]).
+
+-spec ping(connection()) -> ok.
+ping(Connection) ->
+    mqttc_session:ping(Connection).
 
 %% TODO: queueが空になったことを通知してもらう仕組みをつける({active, N}に近い形で設定可能とする)
 -spec publish(connection(), mqttm:topic_name(), binary(), mqttm:qos_level(), boolean()) -> ok.

@@ -14,6 +14,7 @@
 -export([pubrel/2]).
 -export([subscribe/2]).
 -export([unsubscribe/2]).
+-export([ping/1]).
 
 %%------------------------------------------------------------------------------------------------------------------------
 %% Macros
@@ -67,6 +68,12 @@ disconnect(Socket) ->
 -spec publish(inet:socket(), mqttm:publish_message()) -> ok | {error, inet:posix()}.
 publish(Socket, PublishMsg) ->
     gen_tcp:send(Socket, mqttm:encode(PublishMsg)).
+
+
+-spec ping(inet:socket()) -> ok | {error, inet:posix()}.
+ping(Socket) ->
+    gen_tcp:send(Socket, mqttm:encode(mqttm:make_pingreq())).
+
 
 -spec pubrel(inet:socket(), mqttm:message_id()) -> ok | {error, inet:posix()}.
 pubrel(Socket, MessageId) ->

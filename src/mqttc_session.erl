@@ -13,6 +13,7 @@
 -export([start_link/1]).
 -export([close/1]).
 -export([publish/2]).
+-export([ping/1]).
 -export([subscribe/2]).
 -export([unsubscribe/2]).
 
@@ -58,6 +59,10 @@ close(Pid) ->
 publish(Pid, PublishMsg) ->
     gen_server:cast(Pid, {publish, PublishMsg}).
 
+-spec ping(pid()) -> ok.
+ping(Pid) ->
+    gen_server:cast(Pid, {ping}).
+
 -spec subscribe(pid(), mqttm:subscribe_message()) -> {ok, [mqttm:qos_level()]} | {error, Reason::term()}.
 subscribe(Pid, Msg) ->
     gen_server:call(Pid, {subscribe, Msg}).
@@ -101,6 +106,12 @@ handle_cast({publish, PublishMsg}, State0) ->
         {{error, Reason}, State1} -> {stop, Reason, State1};
         {ok, State1}              -> {noreply, State1}
     end;
+
+handle_cast({ping}, State0) ->
+    mqttc_lib:ping(State0#state.socket),
+    {noreply, State0};
+
+
 handle_cast({unsubscribe, Msg}, State0) ->
     case do_unsubscribe(Msg, State0) of
         {{error, Reason}, State1} -> {stop, Reason, State1};
@@ -206,6 +217,11 @@ handle_message(#mqttm_pubrec{message_id = MessageId}, State0) ->
 handle_message(#mqttm_pubcomp{}, State0) ->
     %% TODO: ID確認
     {ok, State0};
+
+handle_message(#mqttm_pingresp{}, State0) ->
+    %% TODO: ID確認
+    {ok, State0};
+
 handle_message(#mqttm_suback{message_id = Id, payload = QosList}, State0) ->
     case gb_trees:lookup(Id, State0#state.id_to_msg) of
         none               -> {{error, {unexpected_suback_message_id, Id}}, State0};
